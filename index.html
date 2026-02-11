@@ -442,7 +442,7 @@
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📁</div>
                 <div class="upload-text">Escolha um arquivo CSV ou arraste-o aqui</div>
-                <div class="upload-hint">Suporta arquivos CSV com as colunas Título, Fechas, Descripción</div>
+                <div class="upload-hint">Suporta arquivos CSV com as colunas Evento, Título, Fechas, Descripción</div>
                 <input type="file" id="fileInput" accept=".csv">
             </div>
 
@@ -473,15 +473,23 @@
         <div class="instructions">
             <h2>Como usar</h2>
             <ul>
-                <li>Seu arquivo CSV deve ter as coluna: <strong>Título</strong>, <strong>Fechas</strong>, e <strong>Descripción</strong></li>
-                <li>Datas devem estar no formato: "February 23, 2026 11:00 AM (GMT-3) → 12:30 PM"</li>
+                <li>Seu arquivo CSV deve ter as colunas: <strong>Título</strong>, <strong>Fechas</strong>, <strong>Descripción</strong> e <strong>Evento</strong></li>
+                <li>Formatos de data aceitos:
+                    <ul style="margin-top: 0.5rem; list-style: none; padding-left: 1rem;">
+                        <li>• Dia inteiro: "February 16, 2026"</li>
+                        <li>• Com hora: "Jun 17, 2026 11:00 AM (GMT-3)"</li>
+                        <li>• Com intervalo: "February 23, 2026 8:00 AM (GMT-3) → 9:30 AM"</li>
+                        <li>• Timezones: GMT±N ou CST, EST, PST, etc.</li>
+                    </ul>
+                </li>
+                <li>Título final = Prefixo + Evento (coluna) + Título (coluna)</li>
                 <li>Vai ser criado também um lembrete de 15 minutos antes de cada evento</li>
-            
             </ul>
             
-            <div class="code-example">Título,Fechas,Descripción
-Meeting,"February 23, 2026 11:00 AM (GMT-3) → 12:30 PM",Important team meeting
-Workshop,"March 5, 2026 2:00 PM (GMT-3) → 4:00 PM",Training session</div>
+            <div class="code-example">Evento,Título,Fechas,Descripción
+Reunião,Team Standup,"February 23, 2026 11:00 AM (GMT-3) → 12:30 PM",Daily sync
+Workshop,Python 101,"March 5, 2026",All day training
+Recall,1:1 Meeting,"Jun 17, 2026 2:00 PM (EST)",Personal meeting</div>
         </div>
 
         <footer>
@@ -588,35 +596,101 @@ Workshop,"March 5, 2026 2:00 PM (GMT-3) → 4:00 PM",Training session</div>
             fileInput.value = '';
         }
 
-        function parseFechaWithEndTime(fechaStr) {
-            // Format: "February 23, 2026 11:00 AM (GMT-3) → 12:30 PM"
-            const match = fechaStr.match(/(.+?)\s*\(GMT([+-]\d+)\)\s*→\s*(.+)/);
+        function getTimezoneOffset(tzStr) {
+            // Map common timezone abbreviations to GMT offset
+            const tzMap = {
+                'GMT': 0, 'UTC': 0,
+                'PST': -8, 'PDT': -7,
+                'MST': -7, 'MDT': -6,
+                'CST': -6, 'CDT': -5,
+                'EST': -5, 'EDT': -4,
+                'AST': -4, 'ADT': -3,
+                'BRST': -2, 'BRT': -3, // Brazil
+                'WET': 0, 'WEST': 1,
+                'CET': 1, 'CEST': 2,
+                'EET': 2, 'EEST': 3,
+                'MSK': 3, 'MSD': 4
+            };
             
-            if (!match) {
-                throw new Error(`Invalid date format: ${fechaStr}. Expected: "Month Day, Year HH:MM AM/PM (GMT±N) → HH:MM AM/PM"`);
-            }
-
-            const startDateStr = match[1].trim();
-            const gmtOffset = parseInt(match[2]);
-            const endTimeStr = match[3].trim();
-
-            const startDate = new Date(startDateStr);
-            if (isNaN(startDate.getTime())) {
-                throw new Error(`Cannot parse start date: ${startDateStr}`);
-            }
-
-            const endDateStr = `${startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} ${endTimeStr}`;
-            const endDate = new Date(endDateStr);
-            if (isNaN(endDate.getTime())) {
-                throw new Error(`Cannot parse end time: ${endTimeStr}`);
-            }
-
-            return { startDate, endDate, gmtOffset };
+            // Check if it matches GMT±N format
+            const gmt = tzStr.match(/GMT([+-]\d+)/);
+            if (gmt) return parseInt(gmt[1]);
+            
+            // Check abbreviation
+            return tzMap[tzStr.toUpperCase()] || null;
         }
 
-        function formatICSDate(date) {
+        function parseFechaWithEndTime(fechaStr) {
+            // Multiple formats supported:
+            // 1. Full day: "February 16, 2026"
+            // 2. Start only: "Jun 17, 2026 11:00 AM (GMT-3)"
+            // 3. With end: "February 23, 2026 8:00 AM (GMT-3) → 9:30 AM"
+            
+            const fullDayMatch = fechaStr.match(/^([A-Za-z]+ \d{1,2},?\s*\d{4})$/);
+            if (fullDayMatch) {
+                // Full day event
+                const date = new Date(fullDayMatch[1]);
+                if (isNaN(date.getTime())) {
+                    throw new Error(`Cannot parse date: ${fechaStr}`);
+                }
+                return {
+                    startDate: date,
+                    endDate: new Date(date.getTime() + 24 * 60 * 60 * 1000),
+                    gmtOffset: 0,
+                    isFullDay: true
+                };
+            }
+
+            // Try pattern with timezone and optional end time
+            // Format: "Date HH:MM AM/PM (TZ) [→ HH:MM AM/PM]"
+            const withTimeMatch = fechaStr.match(/^(.+?)\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)\s*\(([^)]+)\)\s*(?:→\s*(.+))?$/i);
+            
+            if (withTimeMatch) {
+                const dateStr = withTimeMatch[1].trim();
+                const startTimeStr = withTimeMatch[2].trim();
+                const tzStr = withTimeMatch[3].trim();
+                const endTimeStr = withTimeMatch[4]?.trim();
+
+                const gmtOffset = getTimezoneOffset(tzStr);
+                if (gmtOffset === null) {
+                    throw new Error(`Unknown timezone: ${tzStr}`);
+                }
+
+                const startDate = new Date(`${dateStr} ${startTimeStr}`);
+                if (isNaN(startDate.getTime())) {
+                    throw new Error(`Cannot parse start date: "${dateStr} ${startTimeStr}"`);
+                }
+
+                let endDate;
+                if (endTimeStr) {
+                    // Use provided end time
+                    endDate = new Date(`${dateStr} ${endTimeStr}`);
+                    if (isNaN(endDate.getTime())) {
+                        throw new Error(`Cannot parse end time: "${dateStr} ${endTimeStr}"`);
+                    }
+                } else {
+                    // Default to 1 hour duration
+                    endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+                }
+
+                return { startDate, endDate, gmtOffset, isFullDay: false };
+            }
+
+            throw new Error(`Invalid date format: ${fechaStr}. Expected formats: "Month Day, Year" or "Month Day, Year HH:MM AM/PM (TZ)" or "Month Day, Year HH:MM AM/PM (TZ) → HH:MM AM/PM"`);
+        }
+
+        function formatICSDate(date, isFullDay = false) {
             const pad = (n) => n.toString().padStart(2, '0');
+            if (isFullDay) {
+                // Format for full day: YYYYMMDD (no time)
+                return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
+            }
             return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+        }
+
+        function formatICSDateUTC(date) {
+            const pad = (n) => n.toString().padStart(2, '0');
+            return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`;
         }
 
         function getTimezoneId(gmtOffset) {
@@ -635,21 +709,39 @@ Workshop,"March 5, 2026 2:00 PM (GMT-3) → 4:00 PM",Training session</div>
             return tzMap[gmtOffset.toString()] || `UTC${gmtOffset > 0 ? '+' : ''}${gmtOffset}`;
         }
 
-        function createICSEvent(titulo, fechaStr, descripcion, index, prefix, link) {
-            const { startDate, endDate, gmtOffset } = parseFechaWithEndTime(fechaStr);
+        function createICSEvent(titulo, fechaStr, descripcion, index, prefix, link, evento) {
+            const { startDate, endDate, gmtOffset, isFullDay } = parseFechaWithEndTime(fechaStr);
             const dtStamp = new Date();
             const tzid = getTimezoneId(gmtOffset);
 
             const uid = `evento-${index}-${startDate.getTime()}@biscos`;
-            const finalTitle = prefix ? `${prefix} ${titulo}` : titulo;
+            
+            // Build title: prefix + evento + titulo
+            let finalTitle = titulo;
+            if (evento && evento.trim()) {
+                finalTitle = `${evento.trim()}: ${titulo}`;
+            }
+            if (prefix && prefix.trim()) {
+                finalTitle = `${prefix.trim()} ${finalTitle}`;
+            }
 
             let eventStr = `BEGIN:VEVENT
 UID:${uid}
-DTSTAMP:${formatICSDate(dtStamp)}Z
-DTSTART;TZID=${tzid}:${formatICSDate(startDate)}
-DTEND;TZID=${tzid}:${formatICSDate(endDate)}
-SUMMARY:${finalTitle}
-DESCRIPTION:${descripcion}`;
+DTSTAMP:${formatICSDateUTC(dtStamp)}Z
+`;
+
+            if (isFullDay) {
+                eventStr += `DTSTART;VALUE=DATE:${formatICSDate(startDate, true)}
+DTEND;VALUE=DATE:${formatICSDate(endDate, true)}
+`;
+            } else {
+                eventStr += `DTSTART;TZID=${tzid}:${formatICSDate(startDate, false)}
+DTEND;TZID=${tzid}:${formatICSDate(endDate, false)}
+`;
+            }
+
+            eventStr += `SUMMARY:${finalTitle}
+DESCRIPTION:${formatICSDescription(descripcion)}`;
 
             if (link && link.trim()) {
                 eventStr += `
@@ -678,10 +770,15 @@ END:VEVENT`;
 
             try {
                 const text = await selectedFile.text();
-                const lines = text.split('\n').filter(line => line.trim());
                 
-                let header = lines[0].replace(/^\uFEFF/, '');
-                const headers = header.split(',').map(h => h.trim());
+                // Parse CSV with proper handling of quoted fields with newlines
+                const rows = parseCSV(text);
+                
+                if (rows.length < 2) {
+                    throw new Error('CSV file is empty or contains only headers');
+                }
+
+                const headers = rows[0];
 
                 const requiredColumns = ['Título', 'Fechas', 'Descripción'];
                 const missingColumns = requiredColumns.filter(col => !headers.includes(col));
@@ -693,19 +790,18 @@ END:VEVENT`;
                 const tituloIdx = headers.indexOf('Título');
                 const fechasIdx = headers.indexOf('Fechas');
                 const descripcionIdx = headers.indexOf('Descripción');
+                const eventoIdx = headers.indexOf('Evento');
 
                 const events = [];
                 const errors = [];
                 
-                for (let i = 1; i < lines.length; i++) {
-                    const line = lines[i];
-                    if (!line.trim()) continue;
-
-                    const row = parseCSVLine(line);
+                for (let i = 1; i < rows.length; i++) {
+                    const row = rows[i];
                     
                     const titulo = row[tituloIdx]?.trim();
                     const fechas = row[fechasIdx]?.trim();
                     const descripcion = row[descripcionIdx]?.trim();
+                    const evento = eventoIdx >= 0 ? row[eventoIdx]?.trim() : '';
 
                     if (!titulo || !fechas) {
                         errors.push(`Row ${i}: Missing título or fechas`);
@@ -713,7 +809,7 @@ END:VEVENT`;
                     }
 
                     try {
-                        const event = createICSEvent(titulo, fechas, descripcion || '', i, prefix, link);
+                        const event = createICSEvent(titulo, fechas, descripcion || '', i, prefix, link, evento || '');
                         events.push(event);
                     } catch (e) {
                         errors.push(`Row ${i} (${titulo}): ${e.message}`);
@@ -768,6 +864,12 @@ END:VCALENDAR`;
             }
         }
 
+        function formatICSDescription(text) {
+            // Escape special characters and preserve newlines in ICS format
+            // Replace actual newlines with \n escape sequence
+            return text.replace(/\r\n/g, '\\n').replace(/\n/g, '\\n');
+        }
+
         function parseCSVLine(line) {
             const result = [];
             let current = '';
@@ -788,6 +890,61 @@ END:VCALENDAR`;
             result.push(current);
 
             return result.map(field => field.replace(/^"|"$/g, ''));
+        }
+
+        function parseCSV(text) {
+            // Proper CSV parser that handles quoted fields with newlines
+            const rows = [];
+            let currentRow = [];
+            let currentField = '';
+            let inQuotes = false;
+            
+            // Remove BOM if present
+            text = text.replace(/^\uFEFF/, '');
+            
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const nextChar = text[i + 1];
+                
+                if (char === '"') {
+                    if (inQuotes && nextChar === '"') {
+                        // Escaped quote
+                        currentField += '"';
+                        i++; // Skip next quote
+                    } else {
+                        // Toggle quote mode
+                        inQuotes = !inQuotes;
+                    }
+                } else if (char === ',' && !inQuotes) {
+                    // Field separator
+                    currentRow.push(currentField.trim());
+                    currentField = '';
+                } else if ((char === '\n' || char === '\r') && !inQuotes) {
+                    // Row separator (only outside quotes)
+                    if (currentField || currentRow.length > 0) {
+                        currentRow.push(currentField.trim());
+                        if (currentRow.some(field => field)) { // Only add non-empty rows
+                            rows.push(currentRow);
+                        }
+                        currentRow = [];
+                        currentField = '';
+                    }
+                    // Skip \r\n as a single separator
+                    if (char === '\r' && nextChar === '\n') {
+                        i++;
+                    }
+                } else {
+                    currentField += char;
+                }
+            }
+            
+            // Add last field and row
+            if (currentField || currentRow.length > 0) {
+                currentRow.push(currentField.trim());
+                rows.push(currentRow);
+            }
+            
+            return rows;
         }
     </script>
 </body>
