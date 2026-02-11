@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Converter CSV para ICS</title>
+    <title>Biscos - CSV to ICS Converter</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
@@ -267,6 +267,42 @@
         .file-meta {
             font-size: 14px;
             color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .input-container {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .prefix-label {
+            display: block;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+            font-size: 14px;
+        }
+
+        .prefix-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        .prefix-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .prefix-hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
         }
 
         .instructions {
@@ -406,13 +442,25 @@
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📁</div>
                 <div class="upload-text">Escolha um arquivo CSV ou arraste-o aqui</div>
-                <div class="upload-hint">Suporta arquivos CSV com as colunas Evento, Fechas, e Tipo</div>
+                <div class="upload-hint">Suporta arquivos CSV com as colunas Título, Fechas, Descripción</div>
                 <input type="file" id="fileInput" accept=".csv">
             </div>
 
             <div class="file-info" id="fileInfo">
                 <div class="file-name" id="fileName"></div>
                 <div class="file-meta" id="fileMeta"></div>
+                
+                <div class="input-container">
+                    <label for="prefixInput" class="prefix-label">Prefixo do título do evento (opcional):</label>
+                    <input type="text" id="prefixInput" class="prefix-input" placeholder="e.g., [COMPANY] or [TEAM] - ">
+                    <div class="prefix-hint">Será adicionado antes de cada título de evento</div>
+                </div>
+
+                <div class="input-container">
+                    <label for="linkInput" class="prefix-label">Link para todos os eventos (opcional):</label>
+                    <input type="text" id="linkInput" class="prefix-input" placeholder="e.g., https://meet.example.com/abc123">
+                    <div class="prefix-hint">O mesmo link será adicionado a todos os convites</div>
+                </div>
             </div>
 
             <div style="text-align: center; margin-top: 2rem;">
@@ -425,17 +473,15 @@
         <div class="instructions">
             <h2>Como usar</h2>
             <ul>
-                <li>Seu arquivo CSV deve ter as coluna: <strong>Evento</strong>, <strong>Fechas</strong>, and <strong>Tipo</strong></li>
-                <li>Datas devem estar no formato: "February 23, 2026 11:00 AM (GMT-3)"</li>
-                <li>Cada evento criado vai ter 90 minutos</li>
-                <li>Horários serão convertidos na timezone de El Salvador (GMT-6)</li>
+                <li>Seu arquivo CSV deve ter as coluna: <strong>Título</strong>, <strong>Fechas</strong>, e <strong>Descripción</strong></li>
+                <li>Datas devem estar no formato: "February 23, 2026 11:00 AM (GMT-3) → 12:30 PM"</li>
                 <li>Vai ser criado também um lembrete de 15 minutos antes de cada evento</li>
             
             </ul>
             
-            <div class="code-example">Evento,Fechas,Tipo
-Meeting,"February 23, 2026 11:00 AM (GMT-3)",Work
-Workshop,"March 5, 2026 2:00 PM (GMT-3)",Training</div>
+            <div class="code-example">Título,Fechas,Descripción
+Meeting,"February 23, 2026 11:00 AM (GMT-3) → 12:30 PM",Important team meeting
+Workshop,"March 5, 2026 2:00 PM (GMT-3) → 4:00 PM",Training session</div>
         </div>
 
         <footer>
@@ -447,13 +493,14 @@ Workshop,"March 5, 2026 2:00 PM (GMT-3)",Training</div>
         let selectedFile = null;
         let isFileSelected = false;
 
-        // Setup drag and drop
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const fileInfo = document.getElementById('fileInfo');
         const fileName = document.getElementById('fileName');
         const fileMeta = document.getElementById('fileMeta');
         const mainBtn = document.getElementById('mainBtn');
+        const prefixInput = document.getElementById('prefixInput');
+        const linkInput = document.getElementById('linkInput');
 
         uploadArea.addEventListener('click', () => {
             if (!isFileSelected) {
@@ -491,10 +538,8 @@ Workshop,"March 5, 2026 2:00 PM (GMT-3)",Training</div>
 
         function handleMainButton() {
             if (!isFileSelected) {
-                // State: Select file
                 fileInput.click();
             } else {
-                // State: Download ICS
                 convertAndDownload();
             }
         }
@@ -517,11 +562,10 @@ Workshop,"March 5, 2026 2:00 PM (GMT-3)",Training</div>
             mainBtn.classList.remove('btn-primary');
             mainBtn.classList.add('btn-secondary');
             
-            // Update upload area to show file is selected
             uploadArea.style.borderColor = 'var(--success)';
             uploadArea.querySelector('.upload-icon').textContent = '✓';
             uploadArea.querySelector('.upload-text').textContent = 'File ready to convert';
-            uploadArea.querySelector('.upload-hint').textContent = 'Click the button below to download';
+            uploadArea.querySelector('.upload-hint').textContent = 'Add a prefix if desired, then click the button below';
         }
 
         function resetToInitialState() {
@@ -529,42 +573,45 @@ Workshop,"March 5, 2026 2:00 PM (GMT-3)",Training</div>
             isFileSelected = false;
             
             fileInfo.classList.remove('show');
+            prefixInput.value = '';
+            linkInput.value = '';
             
-            // Reset button
             mainBtn.textContent = 'Select CSV File';
             mainBtn.classList.remove('btn-secondary');
             mainBtn.classList.add('btn-primary');
             
-            // Reset upload area
             uploadArea.style.borderColor = '';
             uploadArea.querySelector('.upload-icon').textContent = '📁';
             uploadArea.querySelector('.upload-text').textContent = 'Choose a CSV file or drag it here';
-            uploadArea.querySelector('.upload-hint').textContent = 'Supports CSV files with Evento, Fechas, and Tipo columns';
+            uploadArea.querySelector('.upload-hint').textContent = 'Supports CSV files with Título, Fechas, Descripción';
             
-            // Reset file input
             fileInput.value = '';
         }
 
-        function parseFecha(fechaStr) {
-            const match = fechaStr.match(/(.+?)\s*\(GMT([+-]\d+)\)/);
+        function parseFechaWithEndTime(fechaStr) {
+            // Format: "February 23, 2026 11:00 AM (GMT-3) → 12:30 PM"
+            const match = fechaStr.match(/(.+?)\s*\(GMT([+-]\d+)\)\s*→\s*(.+)/);
+            
             if (!match) {
-                throw new Error(`Invalid date format: ${fechaStr}`);
+                throw new Error(`Invalid date format: ${fechaStr}. Expected: "Month Day, Year HH:MM AM/PM (GMT±N) → HH:MM AM/PM"`);
             }
 
-            const datePart = match[1].trim();
+            const startDateStr = match[1].trim();
             const gmtOffset = parseInt(match[2]);
+            const endTimeStr = match[3].trim();
 
-            const date = new Date(datePart);
-            if (isNaN(date.getTime())) {
-                throw new Error(`Cannot parse date: ${datePart}`);
+            const startDate = new Date(startDateStr);
+            if (isNaN(startDate.getTime())) {
+                throw new Error(`Cannot parse start date: ${startDateStr}`);
             }
 
-            // El Salvador is GMT-6
-            const elSalvadorOffset = -6;
-            const hourDifference = elSalvadorOffset - gmtOffset;
-            date.setHours(date.getHours() + hourDifference);
+            const endDateStr = `${startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} ${endTimeStr}`;
+            const endDate = new Date(endDateStr);
+            if (isNaN(endDate.getTime())) {
+                throw new Error(`Cannot parse end time: ${endTimeStr}`);
+            }
 
-            return date;
+            return { startDate, endDate, gmtOffset };
         }
 
         function formatICSDate(date) {
@@ -572,81 +619,131 @@ Workshop,"March 5, 2026 2:00 PM (GMT-3)",Training</div>
             return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
         }
 
-        function createICSEvent(evento, fechaStr, tipo, index) {
-            const dtStart = parseFecha(fechaStr);
-            const dtEnd = new Date(dtStart.getTime() + 90 * 60000); // 90 minutes
+        function getTimezoneId(gmtOffset) {
+            // Map GMT offset to TZID
+            const tzMap = {
+                '-5': 'America/New_York',
+                '-4': 'America/New_York',
+                '-3': 'America/Sao_Paulo',
+                '-2': 'America/Godthab',
+                '-1': 'Atlantic/Azores',
+                '0': 'UTC',
+                '1': 'Europe/London',
+                '2': 'Europe/Paris',
+                '3': 'Europe/Moscow'
+            };
+            return tzMap[gmtOffset.toString()] || `UTC${gmtOffset > 0 ? '+' : ''}${gmtOffset}`;
+        }
+
+        function createICSEvent(titulo, fechaStr, descripcion, index, prefix, link) {
+            const { startDate, endDate, gmtOffset } = parseFechaWithEndTime(fechaStr);
             const dtStamp = new Date();
+            const tzid = getTimezoneId(gmtOffset);
 
-            const uid = `evento-${index}-${formatICSDate(dtStart)}@biscos`;
+            const uid = `evento-${index}-${startDate.getTime()}@biscos`;
+            const finalTitle = prefix ? `${prefix} ${titulo}` : titulo;
 
-            return `BEGIN:VEVENT
+            let eventStr = `BEGIN:VEVENT
 UID:${uid}
 DTSTAMP:${formatICSDate(dtStamp)}Z
-DTSTART:${formatICSDate(dtStart)}
-DTEND:${formatICSDate(dtEnd)}
-SUMMARY:${evento}
-DESCRIPTION:Tipo: ${tipo}
+DTSTART;TZID=${tzid}:${formatICSDate(startDate)}
+DTEND;TZID=${tzid}:${formatICSDate(endDate)}
+SUMMARY:${finalTitle}
+DESCRIPTION:${descripcion}`;
+
+            if (link && link.trim()) {
+                eventStr += `
+URL:${link.trim()}
+LOCATION:${link.trim()}`;
+            }
+
+            eventStr += `
 STATUS:CONFIRMED
 SEQUENCE:0
 BEGIN:VALARM
 TRIGGER:-PT15M
 ACTION:DISPLAY
-DESCRIPTION:Lembrete: ${evento} em 15 minutos
+DESCRIPTION:Recordatorio: ${finalTitle} en 15 minutos
 END:VALARM
 END:VEVENT`;
+
+            return eventStr;
         }
 
         async function convertAndDownload() {
             if (!selectedFile) return;
 
+            const prefix = prefixInput.value;
+            const link = linkInput.value;
+
             try {
                 const text = await selectedFile.text();
                 const lines = text.split('\n').filter(line => line.trim());
                 
-                // Remove BOM if present
                 let header = lines[0].replace(/^\uFEFF/, '');
                 const headers = header.split(',').map(h => h.trim());
 
-                if (!headers.includes('Evento') || !headers.includes('Fechas') || !headers.includes('Tipo')) {
-                    throw new Error('O arquivo CSV deve ter as colunas Evento, Fechas, e Tipo.');
+                const requiredColumns = ['Título', 'Fechas', 'Descripción'];
+                const missingColumns = requiredColumns.filter(col => !headers.includes(col));
+                
+                if (missingColumns.length > 0) {
+                    throw new Error(`CSV must have: ${requiredColumns.join(', ')}. Missing: ${missingColumns.join(', ')}`);
                 }
 
-                const eventoIdx = headers.indexOf('Evento');
+                const tituloIdx = headers.indexOf('Título');
                 const fechasIdx = headers.indexOf('Fechas');
-                const tipoIdx = headers.indexOf('Tipo');
+                const descripcionIdx = headers.indexOf('Descripción');
 
                 const events = [];
+                const errors = [];
+                
                 for (let i = 1; i < lines.length; i++) {
                     const line = lines[i];
                     if (!line.trim()) continue;
 
-                    // Parse CSV properly handling quoted fields
                     const row = parseCSVLine(line);
                     
-                    const evento = row[eventoIdx]?.trim();
+                    const titulo = row[tituloIdx]?.trim();
                     const fechas = row[fechasIdx]?.trim();
-                    const tipo = row[tipoIdx]?.trim();
+                    const descripcion = row[descripcionIdx]?.trim();
 
-                    if (!evento || !fechas) continue;
+                    if (!titulo || !fechas) {
+                        errors.push(`Row ${i}: Missing título or fechas`);
+                        continue;
+                    }
 
                     try {
-                        const event = createICSEvent(evento, fechas, tipo, i);
+                        const event = createICSEvent(titulo, fechas, descripcion || '', i, prefix, link);
                         events.push(event);
                     } catch (e) {
+                        errors.push(`Row ${i} (${titulo}): ${e.message}`);
                         console.error(`Error in row ${i}:`, e);
                     }
                 }
 
+                if (events.length === 0) {
+                    throw new Error('No valid events found. Errors:\n' + errors.join('\n'));
+                }
+
                 const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+                const vtimezone = `BEGIN:VTIMEZONE
+TZID:America/Sao_Paulo
+BEGIN:STANDARD
+TZOFFSETFROM:-0300
+TZOFFSETTO:-0300
+TZNAME:GMT-3
+DTSTART:19700101T000000
+END:STANDARD
+END:VTIMEZONE`;
                 const icsContent = `BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//biscos-${today}//Converter CSV para ICS//PT
+PRODID:-//biscos-${today}//CSV to ICS Converter//PT
 CALSCALE:GREGORIAN
 METHOD:PUBLISH
+${vtimezone}
 ${events.join('\n')}
 END:VCALENDAR`;
 
-                // Download
                 const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -657,9 +754,10 @@ END:VCALENDAR`;
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
 
-                alert(`✓ Successfully created ${events.length} event(s)!`);
+                let message = `✓ Successfully created ${events.length} event(s)!`;
+
+                alert(message);
                 
-                // Reset to initial state after successful download
                 setTimeout(() => {
                     resetToInitialState();
                 }, 1000);
